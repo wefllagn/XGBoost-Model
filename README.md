@@ -13,7 +13,7 @@ The repository includes an **XGBoost**-based time series model to forecast munic
 
 ## 1) How to set up
 
-**You msut have:**
+**You must have:**
 - Python 3.10+
 - A SQL database with at least one table of historical water balance by municipality
 
