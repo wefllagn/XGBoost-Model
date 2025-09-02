@@ -77,9 +77,9 @@ python -m src.train --horizon 60 --no-write
 ---
 
 **USEFUL FLAGS**
-- municipality "La Trinidad" to filter which muni to train.
-- exog-cols "precipitation(mm),evapotranspiration(mm),..." to include drivers.
-- no-write to avoid DB writes (console only).
+```--municipality "La Trinidad"``` to filter which muni to train.
+```--exog-cols "precipitation(mm),evapotranspiration(mm),..."``` to include drivers.
+```--no-write``` to avoid DB writes (console only).
 
 ## 4) Notes
 
