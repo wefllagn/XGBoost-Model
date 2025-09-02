@@ -74,6 +74,11 @@ Evaluate only (no write):
 python -m src.train --horizon 60 --no-write
 ```
 
+Predict all features
+```bash
+python -m src.train --horizon 60 --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)" --no-write
+```
+
 ---
 
 **USEFUL FLAGS**
