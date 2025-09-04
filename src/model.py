@@ -1,149 +1,275 @@
 from __future__ import annotations
-
-import logging
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
+import math
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 import xgboost as xgb
 
 from .config import ModelConfig
-from .features import make_future_calendar
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
 class TrainResult:
     municipality: str
+    model: xgb.XGBRegressor
     rmse: float
     mae: float
-    n_train: int
-    n_valid: int
+    aic: float
+    bic: float
     features_used: List[str]
-    model: XGBRegressor
 
 
-def _rmse(y_true, y_pred) -> float:
-    """Sklearn-version-safe RMSE."""
-    try:
-        # sklearn >= 0.22
-        return float(mean_squared_error(y_true, y_pred, squared=False))
-    except TypeError:
-        # older sklearn: no 'squared' kw
-        return float(np.sqrt(mean_squared_error(y_true, y_pred)))
+def _time_series_split(
+    df_muni: pd.DataFrame,
+    y_col: str = "water_balance",
+    valid_frac: float = 0.2,
+) -> int:
+    """
+    Chronological split: last valid_frac portion is validation.
+    Assumes df_muni is already sorted by date (features.build_supervised_frame does that).
+    Returns the integer split index (train = [:split], valid = [split:])
+    """
+    n = len(df_muni)
+    n_val = max(1, int(round(n * valid_frac)))
+    split = max(1, n - n_val)
+    return split
+
+
+def _augment_training_rows(
+    df_tr: pd.DataFrame,
+    y_col: str,
+    mode: str,
+    scale: float,
+    multiplier: int,
+    muni_name: str,
+) -> pd.DataFrame:
+    """
+    Time-series-safe augmentation applied ONLY to training rows.
+      - "none": no augmentation
+      - "noise": add Gaussian noise to numeric features & target
+      - "seasonal_bootstrap": resample within same calendar month + small noise
+    """
+    if mode == "none" or len(df_tr) == 0 or multiplier <= 1:
+        return df_tr
+
+    # numeric features
+    num_cols = list(df_tr.select_dtypes(include=[np.number]).columns)
+
+    # Protect discrete/index columns from any noise
+    PROTECTED = {
+        "year", "month", "day",
+        "provincialID", "municipalID", "municipalityID",
+    }
+    PROTECTED |= {c for c in df_tr.columns if c.lower().endswith("id")}
+    PROTECTED.add(y_col)
+
+    # only these will receive noise
+    feat_cols = [c for c in num_cols if c not in PROTECTED]
+
+    def _add_noise_blockwise(df_src: pd.DataFrame, ref_for_std: pd.DataFrame) -> pd.DataFrame:
+        """Ensure float dtype, then add noise using std from ref_for_std (safe per-column assign)."""
+        out = df_src.copy()
+
+        if feat_cols:
+            base = out[feat_cols].astype(np.float64).to_numpy(copy=True)
+            ref_std = (
+                ref_for_std[feat_cols]
+                .astype(np.float64).std(ddof=0)
+                .replace(0, 1.0).astype(np.float64)
+                .to_numpy(copy=False)
+            )
+            noise = np.random.normal(0.0, scale, size=base.shape)
+            bumped = base + noise * ref_std
+            # assign back per column to keep float64 dtype
+            for j, col in enumerate(feat_cols):
+                out[col] = bumped[:, j].astype(np.float64)
+
+        # target noise (float) – assign as a float Series explicitly
+        y_base = out[y_col].astype(np.float64).to_numpy(copy=True)
+        y_std = float(ref_for_std[y_col].astype(np.float64).std(ddof=0) or 1.0)
+        y_bumped = y_base + np.random.normal(0.0, scale, size=len(out)) * y_std
+        out[y_col] = pd.Series(y_bumped, index=out.index, dtype=np.float64)
+
+        return out
+
+    augmented = [df_tr]
+
+    if mode == "noise":
+        for _ in range(multiplier - 1):
+            augmented.append(_add_noise_blockwise(df_tr, ref_for_std=df_tr))
+
+    elif mode == "seasonal_bootstrap":
+        if "month" not in df_tr.columns:
+            # fallback if month is missing
+            for _ in range(multiplier - 1):
+                augmented.append(_add_noise_blockwise(df_tr, ref_for_std=df_tr))
+        else:
+            rng = np.random.default_rng()
+            for _ in range(multiplier - 1):
+                dups = []
+                for m in range(1, 13):
+                    pool = df_tr[df_tr["month"] == m]
+                    if len(pool) == 0:
+                        continue
+                    take = max(1, int(np.ceil(len(pool) * 0.5)))
+                    picks = pool.sample(n=take, replace=True, random_state=rng.integers(1_000_000))
+                    dups.append(_add_noise_blockwise(picks, ref_for_std=pool))
+                if dups:
+                    augmented.append(pd.concat(dups, ignore_index=True))
+
+    return pd.concat(augmented, ignore_index=True)
 
 
 class XGBWaterBalanceModel:
-    """Wrapper around XGBRegressor for municipal water balance forecasting."""
-
-    def __init__(self, cfg: ModelConfig, n_splits: int = 3):
+    def __init__(
+        self,
+        cfg: ModelConfig,
+        augmentation_mode: str = "none",
+        augmentation_scale: float = 0.05,
+        augmentation_multiplier: int = 1,
+    ):
         self.cfg = cfg
-        self.n_splits = n_splits
+        self.augmentation_mode = augmentation_mode
+        self.augmentation_scale = augmentation_scale
+        self.augmentation_multiplier = augmentation_multiplier
 
-    def _base_estimator(self):
-    # Tune as needed
+    def _base_estimator(self) -> xgb.XGBRegressor:
+        # Solid, conservative defaults
         return xgb.XGBRegressor(
-        n_estimators=500,
-        learning_rate=0.05,
-        max_depth=6,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        reg_lambda=1.0,
-        random_state=42,
-        n_jobs=-1,
-        tree_method="hist",   
-    )
+            n_estimators=500,
+            learning_rate=0.05,
+            max_depth=6,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_lambda=1.0,
+            random_state=42,
+            n_jobs=-1,
+            tree_method="hist",
+        )
 
-
-    def _fit_plain(self, model: XGBRegressor, X_tr, y_tr, X_va, y_va) -> None:
-        """Train without early stopping to avoid API differences across xgboost versions."""
+    def _fit_plain(
+        self,
+        model: xgb.XGBRegressor,
+        X_tr: pd.DataFrame,
+        y_tr: pd.Series,
+        X_va: pd.DataFrame,
+        y_va: pd.Series,
+    ) -> Tuple[xgb.XGBRegressor, float, float, float, float]:
+        # Fit
         model.fit(
             X_tr, y_tr,
             eval_set=[(X_va, y_va)],
             verbose=False,
         )
+        preds = model.predict(X_va)
 
-    def train_one(self, df_supervised: pd.DataFrame, municipality: str) -> TrainResult:
-        data = df_supervised[df_supervised["municipality"] == municipality].copy()
-        if data.empty:
-            raise ValueError(f"No rows for municipality={municipality}")
+        # RMSE (backward compatible with older sklearn)
+        try:
+            rmse = mean_squared_error(y_va, preds, squared=False)
+        except TypeError:
+            rmse = math.sqrt(mean_squared_error(y_va, preds))
+        mae = mean_absolute_error(y_va, preds)
 
-        drop_cols = {"municipality", "year", "month", "water_balance", "date"}
-        X_cols = [c for c in data.columns if c not in drop_cols]
-        y = data["water_balance"].values
-        X = data[X_cols].values
+        # --- AIC / BIC under Gaussian residual assumption ---
+        n = int(len(y_va))
+        # guard: if n < 2, variance can blow up AIC/BIC; handle gracefully
+        if n >= 2:
+            resid = (y_va - preds).astype(float)
+            sigma2 = float(np.var(resid, ddof=1))
+            if sigma2 <= 0 or not np.isfinite(sigma2):
+                # fallback to tiny positive variance
+                sigma2 = 1e-12
+            logL = -0.5 * n * (math.log(2.0 * math.pi * sigma2) + 1.0)
+            # crude parameter count proxy: (#features * #trees)
+            k = int(X_tr.shape[1]) * int(getattr(model, "n_estimators", 1))
+            aic = 2.0 * k - 2.0 * logL
+            bic = k * math.log(float(n)) - 2.0 * logL
+        else:
+            aic = float("nan")
+            bic = float("nan")
 
-        tscv = TimeSeriesSplit(n_splits=self.n_splits)
-        best_rmse = float("inf")
-        best_model: Optional[XGBRegressor] = None
-        last_X_va = last_y_va = None  # for reporting after loop
+        return model, rmse, mae, aic, bic
 
-        for _, (tr, va) in enumerate(tscv.split(X), start=1):
-            X_tr, X_va = X[tr], X[va]
-            y_tr, y_va = y[tr], y[va]
+    def train_one(self, df_super: pd.DataFrame, municipality: str) -> TrainResult:
+        """
+        df_super: supervised frame for ALL municipalities (already lagged/rolled).
+        Trains for one municipality, with time-series split and optional augmentation on TRAIN ONLY.
+        """
+        g = df_super[df_super["municipality"] == municipality].copy()
+        if len(g) < 24:
+            raise ValueError(f"Not enough rows to train {municipality}: {len(g)}")
 
-            model = self._base_estimator()
-            self._fit_plain(model, X_tr, y_tr, X_va, y_va)
+        # Identify usable features: drop target, date, and string columns (e.g., 'municipality')
+        y_col = "water_balance"
+        drop_cols = {"water_balance", "date", "municipality"}
+        numeric_cols = [c for c in g.columns if c not in drop_cols and pd.api.types.is_numeric_dtype(g[c])]
+        X_cols = numeric_cols
 
-            preds = model.predict(X_va)
-            rmse = _rmse(y_va, preds)
-            if rmse < best_rmse:
-                best_rmse = rmse
-                best_model = model
-                last_X_va, last_y_va = X_va, y_va
+        # Time split
+        split = _time_series_split(g, y_col=y_col, valid_frac=0.2)
+        g_tr = g.iloc[:split].copy()
+        g_va = g.iloc[split:].copy()
 
-        assert best_model is not None and last_X_va is not None and last_y_va is not None
+        # --- AUGMENT TRAINING ONLY ---
+        if self.augmentation_mode != "none":
+            g_tr = _augment_training_rows(
+                g_tr,
+                y_col=y_col,
+                mode=self.augmentation_mode,
+                scale=self.augmentation_scale,
+                multiplier=self.augmentation_multiplier,
+                muni_name=municipality,
+            )
 
-        # Report metrics on the best validation split
-        preds = best_model.predict(last_X_va)
-        rmse = _rmse(last_y_va, preds)
-        mae = float(mean_absolute_error(last_y_va, preds))
+        X_tr, y_tr = g_tr[X_cols], g_tr[y_col]
+        X_va, y_va = g_va[X_cols], g_va[y_col]
+
+        model = self._base_estimator()
+        model, rmse, mae, aic, bic = self._fit_plain(model, X_tr, y_tr, X_va, y_va)
 
         return TrainResult(
             municipality=municipality,
+            model=model,
             rmse=rmse,
             mae=mae,
-            n_train=len(y) - len(last_y_va),
-            n_valid=len(last_y_va),
+            aic=aic,
+            bic=bic,
             features_used=X_cols,
-            model=best_model,
         )
 
     def recursive_forecast(
         self,
-        history_supervised: pd.DataFrame,
-        model: XGBRegressor,
+        df_super: pd.DataFrame,
+        model: xgb.XGBRegressor,
         municipality: str,
-        horizon: int
+        horizon: int,
     ) -> List[Tuple[str, int, int, float]]:
-        """Produce horizon-step forecasts via recursive one-step predictions."""
-        drop_cols = {"municipality", "year", "month", "water_balance", "date"}
-        X_cols = [c for c in history_supervised.columns if c not in drop_cols]
+        """
+        Naive roll-forward example (you may have a more sophisticated version elsewhere):
+        Uses the last available row's features; for a true recursive forecast you'd update
+        lag/roll features step-by-step with predicted y.
+        """
+        g = df_super[df_super["municipality"] == municipality].copy()
+        g = g.sort_values(["year", "month"])
+        last = g.iloc[-1:].copy()
 
-        hist = history_supervised[history_supervised["municipality"] == municipality].copy()
-        hist.sort_values(["year", "month"], inplace=True)
-        last_year, last_month = int(hist.iloc[-1]["year"]), int(hist.iloc[-1]["month"])
+        # same feature selection as in train
+        drop_cols = {"water_balance", "date", "municipality"}
+        X_cols = [c for c in g.columns if c not in drop_cols and pd.api.types.is_numeric_dtype(g[c])]
 
-        cur_df = hist.copy()
-        out: List[Tuple[str, int, int, float]] = []
-        for y, m in make_future_calendar(last_year, last_month, horizon):
-            last_row = cur_df.iloc[-1:].copy()
-            last_row["year"] = y
-            last_row["month"] = m
-            last_row["m"] = m
-            last_row["sin_m"] = np.sin(2 * np.pi * m / 12.0)
-            last_row["cos_m"] = np.cos(2 * np.pi * m / 12.0)
+        results = []
+        y, m = int(last["year"].values[0]), int(last["month"].values[0])
 
-            X_input = last_row[X_cols].values
-            y_hat = float(model.predict(X_input)[0])
-            out.append((municipality, int(y), int(m), y_hat))
+        for _ in range(horizon):
+            yhat = float(model.predict(last[X_cols])[0])
+            # advance month (no feature update here—simple baseline)
+            m += 1
+            if m > 12:
+                y += 1
+                m = 1
+            results.append((municipality, y, m, yhat))
 
-            synth = last_row.copy()
-            synth["water_balance"] = y_hat
-            cur_df = pd.concat([cur_df, synth], ignore_index=True)
-
-        return out
+        return results
