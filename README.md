@@ -79,6 +79,19 @@ Predict all features
 python -m src.train --horizon 60 --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)" --no-write
 ```
 
+predict all features with augmentation for all municipalities
+```bash
+python -m src.train `
+  --horizon 60 `
+  --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)"`
+  --augmentation noise `
+  --aug-scale 0.05 `
+  --aug-multiplier 2 `
+  --municipality "ALL" `
+  --no-write
+  
+```
+
 ---
 
 **USEFUL FLAGS**

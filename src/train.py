@@ -144,10 +144,10 @@ def run(
         for muni in muni_list:
             try:
                 result = trainer.train_one(df_super, muni)
-                logger.info("Trained %s | target=%s | RMSE=%.4f | MAE=%.4f | AIC=%.2f | BIC=%.2f | features=%d",
-                    muni, target, result.rmse, result.mae, result.aic, result.bic, len(result.features_used)
+                logger.info("Trained %s | target=%s | RMSE=%.4f | MAE=%.4f | R2=%.2f | MSE=%.2f | features=%d",
+                    muni, target, result.rmse, result.mae, result.r2, result.mse, len(result.features_used)
                 )
-                all_metrics.append((target, muni, result.rmse, result.mae))
+                all_metrics.append((target, muni, result.rmse, result.mae, result.mse, result.r2))
 
                 fc = trainer.recursive_forecast(df_super, result.model, muni, horizon)
                 for (m, y, mo, yhat) in fc:
@@ -168,10 +168,10 @@ def run(
 
     # Metrics summary
     if all_metrics:
-        df_met = pd.DataFrame(all_metrics, columns=["target", "municipality", "rmse", "mae"])
+        df_met = pd.DataFrame(all_metrics, columns=["target", "municipality", "rmse", "mae", "mse", "r2"])
         print("\n=== Metrics per target (avg across municipalities) ===")
         per_target = (
-            df_met.groupby("target", as_index=False)[["rmse", "mae"]]
+            df_met.groupby("target", as_index=False)[["rmse", "mae", "mse", "r2"]]
             .mean()
             .sort_values("rmse")
         )

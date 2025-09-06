@@ -5,7 +5,7 @@ from typing import List, Tuple
 import math
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
 import xgboost as xgb
 
 from .config import ModelConfig
@@ -17,8 +17,8 @@ class TrainResult:
     model: xgb.XGBRegressor
     rmse: float
     mae: float
-    aic: float
-    bic: float
+    r2: float
+    mse: float
     features_used: List[str]
 
 
@@ -166,33 +166,25 @@ class XGBWaterBalanceModel:
         )
         preds = model.predict(X_va)
 
-        # RMSE (backward compatible with older sklearn)
-        try:
-            rmse = mean_squared_error(y_va, preds, squared=False)
-        except TypeError:
-            rmse = math.sqrt(mean_squared_error(y_va, preds))
+        # RMSE & MAE
+        rmse = root_mean_squared_error(y_va, preds)
         mae = mean_absolute_error(y_va, preds)
+        mse = mean_squared_error(y_va, preds)
 
         # --- AIC / BIC under Gaussian residual assumption ---
         n = int(len(y_va))
         # guard: if n < 2, variance can blow up AIC/BIC; handle gracefully
-        if n >= 2:
-            resid = (y_va - preds).astype(float)
-            sigma2 = float(np.var(resid, ddof=1))
-            if sigma2 <= 0 or not np.isfinite(sigma2):
-                # fallback to tiny positive variance
-                sigma2 = 1e-12
-            logL = -0.5 * n * (math.log(2.0 * math.pi * sigma2) + 1.0)
-            # crude parameter count proxy: (#features * #trees)
-            k = int(X_tr.shape[1]) * int(getattr(model, "n_estimators", 1))
-            aic = 2.0 * k - 2.0 * logL
-            bic = k * math.log(float(n)) - 2.0 * logL
+        if n >=2:
+            ss_res = np.sum((y_va - preds) ** 2)
+            ss_tot = np.sum((y_va - np.mean(y_va)) ** 2)
+            if ss_res == 0:
+                r2 = 1.0
+            else:
+                r2 = 1.0 - (ss_res / ss_tot)
         else:
-            aic = float("nan")
-            bic = float("nan")
-
-        return model, rmse, mae, aic, bic
-
+            r2 = float('nan')
+        
+        return model, rmse, mae, r2, mse
     def train_one(self, df_super: pd.DataFrame, municipality: str) -> TrainResult:
         """
         df_super: supervised frame for ALL municipalities (already lagged/rolled).
@@ -228,15 +220,16 @@ class XGBWaterBalanceModel:
         X_va, y_va = g_va[X_cols], g_va[y_col]
 
         model = self._base_estimator()
-        model, rmse, mae, aic, bic = self._fit_plain(model, X_tr, y_tr, X_va, y_va)
+        model, rmse, mae, r2, mse = self._fit_plain(model, X_tr, y_tr, X_va, y_va)
+        r2 = model.score(X_va, y_va)  # Calculate R² score
 
         return TrainResult(
             municipality=municipality,
             model=model,
             rmse=rmse,
             mae=mae,
-            aic=aic,
-            bic=bic,
+            r2=r2,
+            mse=mse,
             features_used=X_cols,
         )
 
