@@ -62,34 +62,14 @@ RANDOM_STATE=42
 
 Train **per municipality** and write **5-year** forecasts:
 
-
-```bash
-python -m src.train --horizon 60 
-```
-
-**EXECUTE THIS FOR RESULTS TO WRITE IN CONSOLE**
-Evaluate only (no write):
-
-```bash
-python -m src.train --horizon 60 --no-write
-```
-
-Predict all features
+Predict all features without any hyperparameters
 ```bash
 python -m src.train --horizon 60 --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)" --no-write
 ```
 
-predict all features with augmentation for all municipalities
+Predict using the last 7 years of the data
 ```bash
-python -m src.train `
-  --horizon 60 `
-  --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)"`
-  --augmentation noise `
-  --aug-scale 0.05 `
-  --aug-multiplier 2 `
-  --municipality "ALL" `
-  --no-write
-  
+python -m src.train --targets "changeinstorage(mm)" --horizon 60 --train-window last7 --no-write
 ```
 
 ---
