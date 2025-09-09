@@ -109,6 +109,23 @@ def run(
 
         # Map & window (after mapping so 'year' exists)
         df_mapped = auto_map_columns(df_raw, model_cfg)
+        # --- Sanity: make sure we're really training on THIS target ---
+        if target not in df_mapped.columns:
+            raise ValueError(f"Requested target '{target}' not found in data columns: {list(df_mapped.columns)}")
+
+        # Force-map to the requested target
+        df_mapped["water_balance"] = pd.to_numeric(df_mapped[target], errors="coerce")
+
+        # Debug so you can see it really changes across targets
+        logger.info(
+        "Target %s stats -> water_balance: count=%s min=%s max=%s mean=%s",
+        target,
+        df_mapped["water_balance"].count(),
+        df_mapped["water_balance"].min(),
+        df_mapped["water_balance"].max(),
+        df_mapped["water_balance"].mean(),
+    )
+
         if train_window == "last7":
             cutoff_year = int(df_mapped["year"].max()) - 6
             df_mapped = df_mapped[df_mapped["year"] >= cutoff_year]
