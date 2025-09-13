@@ -29,21 +29,14 @@ pip install -r requirements.txt
 
 Create a `.env` file in the project root:
 
-```
-# Choose mysql or postgresql
-DB_DIALECT=mysql  # or postgresql
-
-# If mysql: use 'mysql+pymysql'
-# If postgresql: use 'postgresql+psycopg2'
+# Paste this
+DB_DIALECT=mysql
 DB_DRIVER=pymysql
-
-DB_HOST=your-hostname
+DB_HOST=hydrohub-acetone-hydrohub.d.aivencloud.com
 DB_PORT=13519
 DB_USER=avnadmin
-DB_PASSWORD=your-strong-password
-DB_NAME=hydrohub
-
-# Tables
+DB_PASSWORD=AVNS_1fPYqBgVs5UCT9N0YmL
+DB_NAME=HydroHub
 WATER_TABLE=WATERBALMUNI
 PRED_TABLE=PREDWATERBALMUNI
 
@@ -60,16 +53,24 @@ RANDOM_STATE=42
 
 ## 3) Train & Forecast
 
-Train **per municipality** and write **5-year** forecasts:
-
-Predict all features without any hyperparameters
+# Predict all features without any hyperparameters
 ```bash
 python -m src.train --horizon 60 --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)" --no-write
 ```
 
-Predict using the last 7 years of the data
+# Predict using the last 7 years of the data
 ```bash
 python -m src.train --targets "changeinstorage(mm)" --horizon 60 --train-window last7 --no-write
+```
+
+# Predict with data augmentation
+```bash
+python -m src.train --horizon 60 --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)" --augmentation noise --aug-scale 0.05 --aug-multiplier 2 --no-write
+```
+
+# Predict using 7 years of data with augmentation
+```bash
+python -m src.train --train-window last7 --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)" --augmentation noise --aug-scale 0.05 --aug-multiplier 2 --no-write
 ```
 
 ---
