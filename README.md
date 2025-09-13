@@ -73,7 +73,10 @@ python -m src.train --horizon 60 --targets "precipitation(mm),evapotranspiration
 python -m src.train --train-window last7 --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)" --augmentation noise --aug-scale 0.05 --aug-multiplier 2 --no-write
 ```
 
----
+# Train all provinces
+```bash
+python -m src.train --province ALL --targets "changeinstorage(mm)" --horizon 60 --no-write
+```
 
 **USEFUL FLAGS**
 
@@ -82,6 +85,8 @@ python -m src.train --train-window last7 --targets "precipitation(mm),evapotrans
 ```--exog-cols "precipitation(mm),evapotranspiration(mm),..."``` to include drivers.
 
 ```--no-write``` to avoid DB writes (console only).
+
+---
 
 ## 4) Notes
 
