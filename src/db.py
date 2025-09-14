@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Iterable, List, Tuple
 
 import pandas as pd
@@ -22,10 +23,19 @@ def get_engine(cfg: DBConfig) -> Engine:
 
 def read_water_table(engine: Engine, cfg: DBConfig) -> pd.DataFrame:
     """Read historical water balance data from the configured table."""
-    sql = text(f"SELECT * FROM `{cfg.water_table}`") if 'mysql' in cfg.dialect else text(f'SELECT * FROM "{cfg.water_table}"')
-    df = pd.read_sql(sql, con=engine)
-    logger.info("Loaded %d rows from %s", len(df), cfg.water_table)
-    return df
+    try:
+        sql = text(f"SELECT * FROM `{cfg.water_table}`") if 'mysql' in cfg.dialect else text(f'SELECT * FROM "{cfg.water_table}"')
+        df = pd.read_sql(sql, con=engine)
+        logger.info("Loaded %d rows from %s", len(df), cfg.water_table)
+        return df
+    except Exception as e:
+        logger.warning("DB access failed: %s. Falling back to CSV.", e)
+        csv_path = os.path.join(os.path.dirname(__file__), 'Hydrohub.csv')
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"CSV fallback file not found: {csv_path}")
+        df = pd.read_csv(csv_path)
+        logger.info("Loaded %d rows from fallback CSV", len(df), csv_path)
+        return df
 
 
 def ensure_pred_table(engine: Engine, cfg: DBConfig) -> None:
