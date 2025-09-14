@@ -140,6 +140,12 @@ def run(
     augmentation: str,
     aug_scale: float,
     aug_multiplier: int,
+    max_depth: Optional[int] = None,
+    n_estimators: Optional[int] = None,
+    learning_rate: Optional[float] = None,
+    subsample: Optional[float] = None,
+    colsample_bytree: Optional[float] = None,
+    reg_lambda: Optional[float] = None,
 ) -> None:
     db_cfg = DBConfig()
 
@@ -233,7 +239,14 @@ def run(
             augmentation_mode=augmentation,
             augmentation_scale=aug_scale,
             augmentation_multiplier=aug_multiplier,
+            max_depth=max_depth,
+            n_estimators=n_estimators,
+            learning_rate=learning_rate,
+            subsample=subsample,
+            colsample_bytree=colsample_bytree,
+            reg_lambda=reg_lambda,
         )
+
 
         # Province -> municipalities
         for prov, muni_list in province_to_munis.items():
@@ -333,6 +346,13 @@ def parse_args() -> argparse.Namespace:
                    help="Augmentation noise scale (fraction of col std).")
     p.add_argument("--aug-multiplier", type=int, default=1,
                    help="How many total copies (1=no extra, 2=double, etc.).")
+    p.add_argument("--max-depth", type=int, default=None, help="XGBoost max_depth")
+    p.add_argument("--n-estimators", type=int, default=None, help="Number of trees")
+    p.add_argument("--learning-rate", type=float, default=None, help="Learning rate")
+    p.add_argument("--subsample", type=float, default=None, help="Subsample fraction")
+    p.add_argument("--colsample-bytree", type=float, default=None, help="Column subsample fraction")
+    p.add_argument("--reg-lambda", type=float, default=None, help="L2 regularization lambda")
+
 
     args = p.parse_args()
 
@@ -350,9 +370,15 @@ def parse_args() -> argparse.Namespace:
         augmentation=args.augmentation,
         aug_scale=args.aug_scale,
         aug_multiplier=args.aug_multiplier,
+        max_depth=args.max_depth,
+        n_estimators=args.n_estimators,
+        learning_rate=args.learning_rate,
+        subsample=args.subsample,
+        colsample_bytree=args.colsample_bytree,
+        reg_lambda=args.reg_lambda,
     )
 
-
+    
 if __name__ == "__main__":
     ns = parse_args()
     run(
@@ -366,4 +392,10 @@ if __name__ == "__main__":
         ns.augmentation,
         ns.aug_scale,
         ns.aug_multiplier,
+        ns.max_depth,
+        ns.n_estimators,
+        ns.learning_rate,
+        ns.subsample,
+        ns.colsample_bytree,
+        ns.reg_lambda,
     )

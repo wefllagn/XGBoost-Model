@@ -29,13 +29,14 @@ def read_water_table(engine: Engine, cfg: DBConfig) -> pd.DataFrame:
         logger.info("Loaded %d rows from %s", len(df), cfg.water_table)
         return df
     except Exception as e:
-        logger.warning("DB access failed: %s. Falling back to CSV.", e)
-        csv_path = os.path.join(os.path.dirname(__file__), 'Hydrohub.csv')
+        logger.warning("DB access failed: %s. Falling back to CSV.", e, exc_info=False)
+        csv_path = os.path.join(os.path.dirname(__file__), "Hydrohub.csv")
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"CSV fallback file not found: {csv_path}")
         df = pd.read_csv(csv_path)
-        logger.info("Loaded %d rows from fallback CSV", len(df), csv_path)
+        logger.info("Loaded %d rows from fallback CSV: %s", len(df), csv_path)  
         return df
+
 
 
 def ensure_pred_table(engine: Engine, cfg: DBConfig) -> None:
