@@ -6,8 +6,55 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
 import xgboost as xgb
+import logging
 
 from .config import ModelConfig
+
+# === Best parameter setups per province & target ===
+BEST_PARAMS = {
+    "Abra": {
+        "Soil Moisture": {"max_depth": 6, "n_estimators": 800, "learning_rate": 0.05},
+        "Precipitation": {"max_depth": 10, "n_estimators": 1500, "learning_rate": 0.03},
+        "Runoff": {"max_depth": 6, "n_estimators": 700, "learning_rate": 0.05},
+        "Evapotranspiration": {
+            "max_depth": 4, "n_estimators": 500, "learning_rate": 0.07,
+            "augmentation": "noise", "aug_scale": 0.05, "aug_multiplier": 2
+        },
+    },
+    "Apayao": {
+        "Soil Moisture": {"max_depth": 6, "n_estimators": 800, "learning_rate": 0.05},
+        "Precipitation": {"max_depth": 10, "n_estimators": 1500, "learning_rate": 0.03},
+        "Runoff": {"max_depth": 6, "n_estimators": 700, "learning_rate": 0.05},
+        "Evapotranspiration": {"max_depth": 4, "n_estimators": 500, "learning_rate": 0.07},
+    },
+    "Benguet": {
+        "Soil Moisture": {"max_depth": 5, "n_estimators": 600, "learning_rate": 0.05},
+        "Precipitation": {"max_depth": 9, "n_estimators": 1200, "learning_rate": 0.04},
+        "Runoff": {"max_depth": 6, "n_estimators": 800, "learning_rate": 0.05},
+        "Evapotranspiration": {
+            "max_depth": 4, "n_estimators": 500, "learning_rate": 0.07,
+            "augmentation": "noise", "aug_scale": 0.05, "aug_multiplier": 2
+        },
+    },
+    "Ifugao": {
+        "Soil Moisture": {"max_depth": 5, "n_estimators": 600, "learning_rate": 0.05},
+        "Precipitation": {"max_depth": 9, "n_estimators": 1200, "learning_rate": 0.04},
+        "Runoff": {"max_depth": 6, "n_estimators": 700, "learning_rate": 0.05},
+        "Evapotranspiration": {
+            "max_depth": 4, "n_estimators": 500, "learning_rate": 0.07,
+            "augmentation": "noise", "aug_scale": 0.05, "aug_multiplier": 2
+        },
+    },
+    "Kalinga": {
+        "Soil Moisture": {"max_depth": 4, "n_estimators": 500, "learning_rate": 0.07},
+        "Precipitation": {"max_depth": 9, "n_estimators": 1200, "learning_rate": 0.04},
+        "Runoff": {"max_depth": 6, "n_estimators": 700, "learning_rate": 0.05},
+        "Evapotranspiration": {
+            "max_depth": 4, "n_estimators": 500, "learning_rate": 0.07,
+            "augmentation": "noise", "aug_scale": 0.05, "aug_multiplier": 2
+        },
+    },
+}
 
 
 @dataclass
@@ -144,16 +191,27 @@ class XGBWaterBalanceModel:
             tree_method="hist",
         )
 
-        if province in ["Abra", "Apayao"]:
-            params.update({
-                "max_depth": 10,
-                "n_estimators": 1500,
-                "learning_rate": 0.03,
-                "subsample": 0.9,
-                "colsample_bytree": 0.9,
-            })
+        target = self.cfg.target_col
 
+        if province in BEST_PARAMS and target in BEST_PARAMS[province]:
+            logger = logging.getLogger("model")
+            best = BEST_PARAMS[province][target]
+            logger.info("Using best setup for %s - %s", province, target)
 
+            # Apply hyperparameters
+            params.update({k: v for k, v in best.items()
+                           if k not in ["augmentation", "aug_scale", "aug_multiplier"]})
+
+            # Apply augmentation if defined
+            if "augmentation" in best:
+                self.augmentation_mode = best.get("augmentation", self.augmentation_mode)
+                self.augmentation_scale = best.get("aug_scale", self.augmentation_scale)
+                self.augmentation_multiplier = best.get("aug_multiplier", self.augmentation_multiplier)
+                logger.info("Applied augmentation for %s - %s", province, target)
+
+        # CLI overrides always win
+        if self._hp_overrides:
+            params.update(self._hp_overrides)
 
         return xgb.XGBRegressor(**params)
 
@@ -206,8 +264,6 @@ class XGBWaterBalanceModel:
         X_tr, y_tr = g_tr[X_cols], g_tr[y_col]
         X_va, y_va = g_va[X_cols], g_va[y_col]
 
-        # pick province if available in the data
-        prov = g["province"].iloc[0] if "province" in g.columns else None
         prov = g["province"].iloc[0] if "province" in g.columns else None
         model = self._base_estimator(province=prov)
 

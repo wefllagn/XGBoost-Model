@@ -1,4 +1,4 @@
-"municipalID","municipality","provincialID","province","date","changeinstorage(mm)","runoff(mm)","soilmoisture(mm)","precipitation(mm)","evapotranspiration(mm)","RIMARY",")"
+"municipalID","municipality","provincialID","province","date","changeinstorage(mm)","runoff(mm)","soilmoisture(mm)","precipitation(mm)","evapotranspiration(mm)"
 "1400101000","Bangued","1400100000","Abra","1/15/2000","-51","4","620","65","112"
 "1400101000","Bangued","1400100000","Abra","1/15/2001","-84","8","646","39","115"
 "1400101000","Bangued","1400100000","Abra","1/15/2002","-74","2","545","21","93"
