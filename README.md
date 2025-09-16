@@ -1,4 +1,3 @@
-
 # HydroHub XGBoost Time Series Model (Municipal Water Balance)
 
 The repository includes an **XGBoost**-based time series model to forecast municipal **water balance** in the Cordillera Administrative Region (CAR).
@@ -14,6 +13,7 @@ The repository includes an **XGBoost**-based time series model to forecast munic
 ## 1) How to set up
 
 **You must have:**
+
 - Python 3.10+
 - A SQL database with at least one table of historical water balance by municipality
 
@@ -30,6 +30,7 @@ pip install -r requirements.txt
 Create a `.env` file in the project root:
 
 # Paste this
+
 DB_DIALECT=mysql
 DB_DRIVER=pymysql
 DB_HOST=hydrohub-acetone-hydrohub.d.aivencloud.com
@@ -40,51 +41,49 @@ DB_NAME=HydroHub
 WATER_TABLE=WATERBALMUNI
 PRED_TABLE=PREDWATERBALMUNI
 
-# Optional: comma-separated list of exogenous feature columns if present
-EXOG_COLS=precipitation,evapotranspiration,runoff,soil_moisture,storage_change
-
-# Random seed for reproducibility
-RANDOM_STATE=42
-```
-
-> **Note:** never commit `.env` to version control. 
+> **Note:** never commit `.env` to version control.
 
 ---
 
 ## 3) Train & Forecast
 
-# Predict all features without any hyperparameters
+- Predict all features without any hyperparameters
+
 ```bash
 python -m src.train --horizon 60 --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)" --no-write
 ```
 
-# Predict using the last 7 years of the data
+- Predict using the last 7 years of the data
+
 ```bash
 python -m src.train --targets "changeinstorage(mm)" --horizon 60 --train-window last7 --no-write
 ```
 
-# Predict with data augmentation
+- Predict with data augmentation
+
 ```bash
 python -m src.train --horizon 60 --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)" --augmentation noise --aug-scale 0.05 --aug-multiplier 2 --no-write
 ```
 
-# Predict using 7 years of data with augmentation
+- Predict using 7 years of data with augmentation
+
 ```bash
 python -m src.train --train-window last7 --targets "precipitation(mm),evapotranspiration(mm),runoff(mm),soilmoisture(mm),changeinstorage(mm)" --augmentation noise --aug-scale 0.05 --aug-multiplier 2 --no-write
 ```
 
-# Train all provinces
+- Train all provinces
+
 ```bash
 python -m src.train --province ALL --targets "changeinstorage(mm)" --horizon 60 --no-write
 ```
 
 **USEFUL FLAGS**
 
-```--municipality "La Trinidad"``` to filter which muni to train.
+`--municipality "La Trinidad"` to filter which muni to train.
 
-```--exog-cols "precipitation(mm),evapotranspiration(mm),..."``` to include drivers.
+`--exog-cols "precipitation(mm),evapotranspiration(mm),..."` to include drivers.
 
-```--no-write``` to avoid DB writes (console only).
+`--no-write` to avoid DB writes (console only).
 
 ---
 
@@ -93,4 +92,3 @@ python -m src.train --province ALL --targets "changeinstorage(mm)" --horizon 60 
 - The pipeline uses **time-based splits** (`TimeSeriesSplit`) with early stopping to avoid leakage.
 - If you add or rename columns, pass `--exog-cols` at runtime or update `.env`.
 - For PostgreSQL, set `DB_DIALECT=postgresql` and `DB_DRIVER=psycopg2` in `.env` and install `psycopg2-binary`.
-
