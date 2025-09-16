@@ -3,7 +3,7 @@
 The repository includes an **XGBoost**-based time series model to forecast municipal **water balance** in the Cordillera Administrative Region (CAR).
 
 - Connects to the SQL database (default: **MySQL** via `pymysql` + SQLAlchemy)
-- Loads historical municipal water balance (and optional exogenous features)
+- Loads historical municipal water balance
 - Builds supervised learning features (lags, rolling means, seasonal encodings)
 - Trains `xgboost.XGBRegressor` with time-aware validation
 - Evaluates with **RMSE** and **MAE**
